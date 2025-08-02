@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Maestros y Alumnos API .NET</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        input, button { padding: 8px; margin: 5px 0; display: block; width: 300px; }
+        ul { margin-top: 10px; list-style-type: none; padding-left: 0; }
+        .maestro { margin-bottom: 15px; border: 1px solid #ccc; padding: 10px; border-radius: 8px; }
+        .eliminar-alumno, .eliminar-maestro { margin-left: 10px; padding: 4px 8px; cursor: pointer; }
+        .busqueda { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>API .NET - Maestros y Alumnos</h1>
+
+    <!-- FORMULARIO PARA AGREGAR ALUMNO A MAESTRO -->
+    <input type="text" id="maestro" placeholder="Nombre del maestro" />
+    <input type="text" id="alumno" placeholder="Nombre del alumno" />
+    <button onclick="agregarAlumno()">Agregar alumno al maestro</button>
+
+    <!-- SECCIÓN DE BÚSQUEDA -->
+    <div class="busqueda">
+        <input type="text" id="busquedaMaestro" placeholder="Buscar por maestro" oninput="buscarMaestro()" />
+        <div id="resultadoMaestro"></div>
+
+        <input type="text" id="busquedaAlumno" placeholder="Buscar por alumno" oninput="buscarAlumno()" />
+        <div id="resultadoAlumno"></div>
+    </div>
+
+    <h2>Maestros y sus alumnos:</h2>
+    <div id="listaDatos"></div>
+
+    <script>
+        const apiUrl = "http://localhost:5000/api/maestros"; // URL DE LA API .NET
+
+        let registrosGlobal = []; // SE USA PARA BUSQUEDAS RÁPIDAS
+
+        // ENVÍA NUEVO ALUMNO A UN MAESTRO
+        async function agregarAlumno() {
+            const maestro = document.getElementById("maestro").value.trim();
+            const alumno = document.getElementById("alumno").value.trim();
+            if (!maestro || !alumno) {
+                alert("Debes ingresar ambos campos.");
+                return;
+            }
+
+            const response = await fetch(apiUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nombre: maestro, alumnos: [alumno] })
+            });
+
+            const result = await response.json();
+            console.log("POST:", result);
+            document.getElementById("alumno").value = "";
+            obtenerDatos();
+        }
+
+        // CARGA TODOS LOS MAESTROS Y ALUMNOS
+        async function obtenerDatos() {
+            const response = await fetch(apiUrl);
+            const datos = await response.json();
+            registrosGlobal = datos;
+
+            const contenedor = document.getElementById("listaDatos");
+            contenedor.innerHTML = "";
+
+            datos.forEach(entry => {
+                if (!entry.alumnos || !Array.isArray(entry.alumnos)) return;
+
+                const div = document.createElement("div");
+                div.className = "maestro";
+
+                const titulo = document.createElement("strong");
+                titulo.textContent = `Maestro: ${entry.nombre}`;
+                div.appendChild(titulo);
+
+                const lista = document.createElement("ul");
+
+                entry.alumnos.forEach(alumno => {
+                    const li = document.createElement("li");
+                    li.textContent = alumno;
+
+                    const btn = document.createElement("button");
+                    btn.textContent = "Eliminar";
+                    btn.className = "eliminar-alumno";
+                    btn.onclick = () => eliminarAlumno(entry.nombre, alumno);
+
+                    li.appendChild(btn);
+                    lista.appendChild(li);
+                });
+
+                div.appendChild(lista);
+
+                const btnMaestro = document.createElement("button");
+                btnMaestro.textContent = "Eliminar maestro";
+                btnMaestro.className = "eliminar-maestro";
+                btnMaestro.onclick = () => eliminarMaestro(entry.nombre);
+
+                div.appendChild(btnMaestro);
+                contenedor.appendChild(div);
+            });
+        }
+
+        // ELIMINA UN MAESTRO COMPLETAMENTE
+        async function eliminarMaestro(nombre) {
+            if (!confirm(`¿Eliminar completamente al maestro "${nombre}"?`)) return;
+
+            const response = await fetch(apiUrl + "/maestro", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(nombre)
+            });
+
+            const result = await response.json();
+            console.log("DELETE maestro:", result);
+            obtenerDatos();
+        }
+
+        // ELIMINA UN ALUMNO DE UN MAESTRO
+        async function eliminarAlumno(maestro, alumno) {
+            if (!confirm(`¿Eliminar al alumno "${alumno}" del maestro "${maestro}"?`)) return;
+
+            const response = await fetch(apiUrl + "/alumno", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ maestro, alumno })
+            });
+
+            const result = await response.json();
+            console.log("DELETE alumno:", result);
+            obtenerDatos();
+        }
+
+        // BUSCAR POR MAESTRO Y MOSTRAR SUS ALUMNOS
+        function buscarMaestro() {
+            const nombre = document.getElementById("busquedaMaestro").value.toLowerCase();
+            const resultado = document.getElementById("resultadoMaestro");
+            resultado.innerHTML = "";
+
+            const encontrado = registrosGlobal.find(r => r.nombre.toLowerCase().includes(nombre));
+
+            if (encontrado) {
+                resultado.innerHTML = `<p><strong>${encontrado.nombre}</strong> tiene ${encontrado.alumnos.length} alumno(s):</p><ul>` +
+                    encontrado.alumnos.map(a => `<li>${a}</li>`).join('') +
+                    '</ul>';
+            } else if (nombre !== "") {
+                resultado.innerHTML = `<p>No se encontró al maestro "${nombre}".</p>`;
+            }
+        }
+
+        // BUSCAR POR ALUMNO Y MOSTRAR SU MAESTRO
+        function buscarAlumno() {
+            const nombre = document.getElementById("busquedaAlumno").value.toLowerCase();
+            const resultado = document.getElementById("resultadoAlumno");
+            resultado.innerHTML = "";
+
+            let encontrado = null;
+
+            registrosGlobal.forEach(r => {
+                if (r.alumnos.some(a => a.toLowerCase().includes(nombre))) {
+                    encontrado = r;
+                }
+            });
+
+            if (encontrado) {
+                resultado.innerHTML = `<p>El alumno pertenece al maestro <strong>${encontrado.nombre}</strong>.</p>`;
+            } else if (nombre !== "") {
+                resultado.innerHTML = `<p>No se encontró ningún maestro para el alumno "${nombre}".</p>`;
+            }
+        }
+
+        obtenerDatos(); // CARGA INICIAL
+    </script>
+</body>
+</html>
