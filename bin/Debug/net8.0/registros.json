@@ -7,5 +7,17 @@
       "derek",
       "erick"
     ]
+  },
+  {
+    "Nombre": "string",
+    "Alumnos": [
+      "string"
+    ]
+  },
+  {
+    "Nombre": "test1",
+    "Alumnos": [
+      "prueba 1"
+    ]
   }
 ]

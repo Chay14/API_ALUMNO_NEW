@@ -1,25 +1,30 @@
+using ApiMaestrosAlumnos.Models;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// AGREGA CONTROLADORES
 builder.Services.AddControllers();
-
-// HABILITA SWAGGER PARA GENERAR DOCUMENTACIÓN AUTOMÁTICA
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Conexión MySQL
+builder.Services.AddDbContext<EscuelaContext>(options =>
+    options.UseMySql(
+        builder.Configuration.GetConnectionString("EscuelaConnection"),
+        ServerVersion.AutoDetect(builder.Configuration.GetConnectionString("EscuelaConnection"))
+    )
+);
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("PermitirTodo", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
     });
 });
 
 var app = builder.Build();
 
-// ACTIVA SWAGGER EN TIEMPO DE DESARROLLO
 app.UseSwagger();
 app.UseSwaggerUI();
 

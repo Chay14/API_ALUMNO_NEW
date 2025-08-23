@@ -15,12 +15,11 @@
 <body>
     <h1>API .NET - Maestros y Alumnos</h1>
 
-    <!-- FORMULARIO PARA AGREGAR ALUMNO A MAESTRO -->
-    <input type="text" id="maestro" placeholder="Nombre del maestro" />
-    <input type="text" id="alumno" placeholder="Nombre del alumno" />
-    <button onclick="agregarAlumno()">Agregar alumno al maestro</button>
+    <!-- FORMULARIO PARA AGREGAR MAESTRO O ALUMNO -->
+    <input type="text" id="maestro" placeholder="Nombre del maestro (opcional para alumno suelto)" />
+    <input type="text" id="alumno" placeholder="Nombre del alumno (opcional para maestro solo)" />
+    <button onclick="agregarRegistro()">Agregar maestro/alumno</button>
 
-    <!-- SECCIÓN DE BÚSQUEDA -->
     <div class="busqueda">
         <input type="text" id="busquedaMaestro" placeholder="Buscar por maestro" oninput="buscarMaestro()" />
         <div id="resultadoMaestro"></div>
@@ -33,32 +32,56 @@
     <div id="listaDatos"></div>
 
     <script>
-        const apiUrl = "http://localhost:5000/api/maestros"; // URL DE LA API .NET
+        const apiUrl = "http://localhost:5000/api/maestros";
+        let registrosGlobal = [];
 
-        let registrosGlobal = []; // SE USA PARA BUSQUEDAS RÁPIDAS
-
-        // ENVÍA NUEVO ALUMNO A UN MAESTRO
-        async function agregarAlumno() {
+        // AGREGAR maestro o alumno
+        async function agregarRegistro() {
             const maestro = document.getElementById("maestro").value.trim();
             const alumno = document.getElementById("alumno").value.trim();
-            if (!maestro || !alumno) {
-                alert("Debes ingresar ambos campos.");
+
+            if (!maestro && !alumno) {
+                alert("Debes ingresar al menos un maestro o un alumno.");
                 return;
             }
 
-            const response = await fetch(apiUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ nombre: maestro, alumnos: [alumno] })
-            });
+            try {
+                if (maestro) {
+                    // Enviar maestro (con o sin alumno)
+                    const data = {
+                        nombre: maestro,
+                        alumnos: alumno ? [{ nombre: alumno }] : []
+                    };
 
-            const result = await response.json();
-            console.log("POST:", result);
-            document.getElementById("alumno").value = "";
-            obtenerDatos();
+                    const response = await fetch(apiUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(data)
+                    });
+                    await response.json();
+                }
+
+                if (!maestro && alumno) {
+                    // Enviar alumno suelto
+                    const dataAlumno = { nombre: alumno };
+                    const response = await fetch(apiUrl + "/alumno-suelto", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(dataAlumno)
+                    });
+                    await response.json();
+                }
+
+                document.getElementById("maestro").value = "";
+                document.getElementById("alumno").value = "";
+                obtenerDatos();
+
+            } catch (err) {
+                console.error("Error al agregar:", err);
+                alert("Hubo un error al agregar el registro.");
+            }
         }
 
-        // CARGA TODOS LOS MAESTROS Y ALUMNOS
         async function obtenerDatos() {
             const response = await fetch(apiUrl);
             const datos = await response.json();
@@ -68,8 +91,6 @@
             contenedor.innerHTML = "";
 
             datos.forEach(entry => {
-                if (!entry.alumnos || !Array.isArray(entry.alumnos)) return;
-
                 const div = document.createElement("div");
                 div.className = "maestro";
 
@@ -78,20 +99,20 @@
                 div.appendChild(titulo);
 
                 const lista = document.createElement("ul");
+                if (entry.alumnos && Array.isArray(entry.alumnos)) {
+                    entry.alumnos.forEach(alumno => {
+                        const li = document.createElement("li");
+                        li.textContent = alumno.nombre;
 
-                entry.alumnos.forEach(alumno => {
-                    const li = document.createElement("li");
-                    li.textContent = alumno;
+                        const btn = document.createElement("button");
+                        btn.textContent = "Eliminar";
+                        btn.className = "eliminar-alumno";
+                        btn.onclick = () => eliminarAlumno(entry.nombre, alumno.nombre);
 
-                    const btn = document.createElement("button");
-                    btn.textContent = "Eliminar";
-                    btn.className = "eliminar-alumno";
-                    btn.onclick = () => eliminarAlumno(entry.nombre, alumno);
-
-                    li.appendChild(btn);
-                    lista.appendChild(li);
-                });
-
+                        li.appendChild(btn);
+                        lista.appendChild(li);
+                    });
+                }
                 div.appendChild(lista);
 
                 const btnMaestro = document.createElement("button");
@@ -102,65 +123,66 @@
                 div.appendChild(btnMaestro);
                 contenedor.appendChild(div);
             });
+
+            // Traer alumnos sueltos (sin maestro)
+            const responseAlumnos = await fetch(apiUrl + "/buscar/alumno-suelto");
+            if (responseAlumnos.ok) {
+                const sueltos = await responseAlumnos.json();
+                sueltos.forEach(a => {
+                    const div = document.createElement("div");
+                    div.className = "maestro";
+                    div.innerHTML = `<strong>Alumno suelto:</strong> ${a.nombre} 
+                        <button class="eliminar-alumno" onclick="eliminarAlumno('', '${a.nombre}')">Eliminar</button>`;
+                    contenedor.appendChild(div);
+                });
+            }
         }
 
-        // ELIMINA UN MAESTRO COMPLETAMENTE
         async function eliminarMaestro(nombre) {
             if (!confirm(`¿Eliminar completamente al maestro "${nombre}"?`)) return;
-
-            const response = await fetch(apiUrl + "/maestro", {
+            await fetch(apiUrl + "/maestro", {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(nombre)
             });
-
-            const result = await response.json();
-            console.log("DELETE maestro:", result);
             obtenerDatos();
         }
 
-        // ELIMINA UN ALUMNO DE UN MAESTRO
         async function eliminarAlumno(maestro, alumno) {
-            if (!confirm(`¿Eliminar al alumno "${alumno}" del maestro "${maestro}"?`)) return;
+            if (!confirm(`¿Eliminar al alumno "${alumno}"?`)) return;
 
-            const response = await fetch(apiUrl + "/alumno", {
+            const body = maestro ? { maestro, alumno } : { alumno };
+            await fetch(apiUrl + "/alumno", {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ maestro, alumno })
+                body: JSON.stringify(body)
             });
-
-            const result = await response.json();
-            console.log("DELETE alumno:", result);
             obtenerDatos();
         }
 
-        // BUSCAR POR MAESTRO Y MOSTRAR SUS ALUMNOS
         function buscarMaestro() {
             const nombre = document.getElementById("busquedaMaestro").value.toLowerCase();
             const resultado = document.getElementById("resultadoMaestro");
             resultado.innerHTML = "";
 
             const encontrado = registrosGlobal.find(r => r.nombre.toLowerCase().includes(nombre));
-
             if (encontrado) {
                 resultado.innerHTML = `<p><strong>${encontrado.nombre}</strong> tiene ${encontrado.alumnos.length} alumno(s):</p><ul>` +
-                    encontrado.alumnos.map(a => `<li>${a}</li>`).join('') +
+                    encontrado.alumnos.map(a => `<li>${a.nombre}</li>`).join('') +
                     '</ul>';
             } else if (nombre !== "") {
                 resultado.innerHTML = `<p>No se encontró al maestro "${nombre}".</p>`;
             }
         }
 
-        // BUSCAR POR ALUMNO Y MOSTRAR SU MAESTRO
         function buscarAlumno() {
             const nombre = document.getElementById("busquedaAlumno").value.toLowerCase();
             const resultado = document.getElementById("resultadoAlumno");
             resultado.innerHTML = "";
 
             let encontrado = null;
-
             registrosGlobal.forEach(r => {
-                if (r.alumnos.some(a => a.toLowerCase().includes(nombre))) {
+                if (r.alumnos.some(a => a.nombre.toLowerCase().includes(nombre))) {
                     encontrado = r;
                 }
             });
@@ -172,7 +194,7 @@
             }
         }
 
-        obtenerDatos(); // CARGA INICIAL
+        obtenerDatos();
     </script>
 </body>
 </html>

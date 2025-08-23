@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using ApiMaestrosAlumnos.Models;
-using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace ApiMaestrosAlumnos.Controllers
 {
@@ -8,129 +8,115 @@ namespace ApiMaestrosAlumnos.Controllers
     [Route("api/[controller]")]
     public class MaestrosController : ControllerBase
     {
-        // Ruta del archivo JSON que almacena los registros
-        private readonly string archivo = "registros.json";
+        private readonly EscuelaContext _context;
 
-        // Método para leer los datos desde el archivo JSON
-        private List<Maestro> LeerDatos()
+        public MaestrosController(EscuelaContext context)
         {
-            if (!System.IO.File.Exists(archivo))
-                return new List<Maestro>(); // Si no existe el archivo, retorna una lista vacía
-
-            var contenido = System.IO.File.ReadAllText(archivo); // Lee el contenido del archivo
-            return JsonSerializer.Deserialize<List<Maestro>>(contenido) ?? new List<Maestro>();
+            _context = context;
         }
 
-        // Método para guardar los datos en el archivo JSON
-        private void GuardarDatos(List<Maestro> datos)
-        {
-            var opciones = new JsonSerializerOptions { WriteIndented = true }; // Formatea el JSON con indentación
-            System.IO.File.WriteAllText(archivo, JsonSerializer.Serialize(datos, opciones)); // Guarda los datos
-        }
-
-        // GET: api/maestros - Retorna todos los registros
+        // GET: api/maestros
         [HttpGet]
-        public IActionResult GetAll()
+        public async Task<IActionResult> GetAll()
         {
-            return Ok(LeerDatos());
+            var maestros = await _context.Maestros.Include(m => m.Alumnos).ToListAsync();
+            return Ok(maestros);
         }
 
-        // POST: api/maestros - Agrega un alumno a un maestro (o crea uno nuevo si no existe)
+        // POST: api/maestros - Crear maestro con alumnos opcionales
         [HttpPost]
-        public IActionResult AgregarAlumno([FromBody] Maestro input)
+        public async Task<IActionResult> CrearMaestro([FromBody] Maestro input)
         {
-            // Validación: se requiere nombre y al menos un alumno
-            if (string.IsNullOrWhiteSpace(input.Nombre) || input.Alumnos == null || input.Alumnos.Count == 0)
-                return BadRequest(new { error = "Datos incompletos" });
+            if (string.IsNullOrWhiteSpace(input.Nombre))
+                return BadRequest(new { error = "El nombre del maestro es obligatorio" });
 
-            string alumno = input.Alumnos[0]; // Se toma solo el primer alumno de la lista
-            var registros = LeerDatos();
+            // Crear maestro aunque no tenga alumnos
+            var maestro = new Maestro { Nombre = input.Nombre };
+            _context.Maestros.Add(maestro);
 
-            // Se busca si el maestro ya existe
-            var maestro = registros.FirstOrDefault(m => m.Nombre.Equals(input.Nombre, StringComparison.OrdinalIgnoreCase));
-            if (maestro != null)
+            // Agregar alumnos si existen
+            if (input.Alumnos != null)
             {
-                // Si el alumno no está ya en la lista, lo agrega
-                if (!maestro.Alumnos.Contains(alumno))
-                    maestro.Alumnos.Add(alumno);
-            }
-            else
-            {
-                // Si el maestro no existe, se crea uno nuevo con el alumno
-                registros.Add(new Maestro { Nombre = input.Nombre, Alumnos = new List<string> { alumno } });
-            }
-
-            GuardarDatos(registros); // Guarda los cambios
-            return Ok(new { mensaje = "Registro agregado" });
-        }
-
-        // DELETE: api/maestros/maestro - Elimina un maestro completo
-        [HttpDelete("maestro")]
-        public IActionResult EliminarMaestro([FromBody] string nombre)
-        {
-            var registros = LeerDatos();
-            // Filtra para eliminar el maestro con el nombre especificado
-            var nuevos = registros.Where(m => !m.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase)).ToList();
-
-            if (nuevos.Count == registros.Count)
-                return NotFound(new { error = "Maestro no encontrado" }); // No se eliminó ningún maestro
-
-            GuardarDatos(nuevos); // Guarda la lista sin el maestro eliminado
-            return Ok(new { mensaje = "Maestro eliminado" });
-        }
-
-        // DELETE: api/maestros/alumno - Elimina un alumno específico de un maestro
-        [HttpDelete("alumno")]
-        public IActionResult EliminarAlumno([FromBody] Dictionary<string, string> body)
-        {
-            // Valida que se envíen ambos datos
-            if (!body.TryGetValue("maestro", out var maestroNombre) || !body.TryGetValue("alumno", out var alumnoNombre))
-                return BadRequest(new { error = "Datos incompletos" });
-
-            var registros = LeerDatos();
-            // Busca al maestro
-            var maestro = registros.FirstOrDefault(m => m.Nombre.Equals(maestroNombre, StringComparison.OrdinalIgnoreCase));
-
-            // Valida existencia del maestro y del alumno
-            if (maestro == null || !maestro.Alumnos.Contains(alumnoNombre))
-                return NotFound(new { error = "Maestro o alumno no encontrado" });
-
-            maestro.Alumnos.Remove(alumnoNombre); // Elimina el alumno
-            if (maestro.Alumnos.Count == 0)
-                registros.Remove(maestro); // Si el maestro queda sin alumnos, también se elimina
-
-            GuardarDatos(registros);
-            return Ok(new { mensaje = "Alumno eliminado" });
-        }
-
-        // GET: api/maestros/buscar/maestro/{nombre} - Busca un maestro por nombre
-        [HttpGet("buscar/maestro/{nombre}")]
-        public IActionResult BuscarMaestro(string nombre)
-        {
-            var registros = LeerDatos();
-            // Busca un maestro cuyo nombre contenga el texto indicado
-            var maestro = registros.FirstOrDefault(m => m.Nombre.Contains(nombre, StringComparison.OrdinalIgnoreCase));
-            if (maestro == null)
-                return NotFound(new { mensaje = "Maestro no encontrado" });
-
-            return Ok(maestro); // Retorna el maestro encontrado
-        }
-
-        // GET: api/maestros/buscar/alumno/{nombre} - Busca a qué maestro pertenece un alumno
-        [HttpGet("buscar/alumno/{nombre}")]
-        public IActionResult BuscarAlumno(string nombre)
-        {
-            var registros = LeerDatos();
-            // Recorre todos los maestros buscando el alumno
-            foreach (var maestro in registros)
-            {
-                if (maestro.Alumnos.Any(a => a.Contains(nombre, StringComparison.OrdinalIgnoreCase)))
+                foreach (var a in input.Alumnos)
                 {
-                    return Ok(new { alumno = nombre, maestro = maestro.Nombre });
+                    if (!string.IsNullOrWhiteSpace(a.Nombre))
+                        maestro.Alumnos.Add(new Alumno { Nombre = a.Nombre });
                 }
             }
 
-            return NotFound(new { mensaje = "Alumno no encontrado" });
+            await _context.SaveChangesAsync();
+            return Ok(new { mensaje = "Maestro creado correctamente" });
+        }
+
+        // POST: api/maestros/alumno - Crear alumno sin maestro
+[HttpPost("alumno")]
+public async Task<IActionResult> CrearAlumno([FromBody] Alumno input)
+{
+    if (string.IsNullOrWhiteSpace(input.Nombre))
+        return BadRequest(new { error = "El nombre del alumno es obligatorio" });
+
+    var alumno = new Alumno
+    {
+        Nombre = input.Nombre,
+        MaestroId = input.MaestroId // explícito que no tiene maestro
+    };
+
+    _context.Alumnos.Add(alumno);
+    await _context.SaveChangesAsync();
+
+    return Ok(new { mensaje = "Alumno creado correctamente sin maestro" });
+}
+
+
+        // DELETE: api/maestros/maestro - Eliminar maestro completo
+        [HttpDelete("maestro")]
+        public async Task<IActionResult> EliminarMaestro([FromBody] string nombre)
+        {
+            var maestro = await _context.Maestros.Include(m => m.Alumnos)
+                                                 .FirstOrDefaultAsync(m => m.Nombre == nombre);
+            if (maestro == null) return NotFound(new { error = "Maestro no encontrado" });
+
+            _context.Maestros.Remove(maestro);
+            await _context.SaveChangesAsync();
+            return Ok(new { mensaje = "Maestro eliminado" });
+        }
+
+        // DELETE: api/maestros/alumno - Eliminar alumno (con o sin maestro)
+        [HttpDelete("alumno")]
+        public async Task<IActionResult> EliminarAlumno([FromBody] string nombre)
+        {
+            var alumno = await _context.Alumnos.FirstOrDefaultAsync(a => a.Nombre == nombre);
+            if (alumno == null) return NotFound(new { error = "Alumno no encontrado" });
+
+            _context.Alumnos.Remove(alumno);
+            await _context.SaveChangesAsync();
+            return Ok(new { mensaje = "Alumno eliminado" });
+        }
+
+        // GET: api/maestros/buscar/maestro/{nombre}
+        [HttpGet("buscar/maestro/{nombre}")]
+        public async Task<IActionResult> BuscarMaestro(string nombre)
+        {
+            var maestro = await _context.Maestros.Include(m => m.Alumnos)
+                                                 .FirstOrDefaultAsync(m => m.Nombre.Contains(nombre));
+            if (maestro == null) return NotFound(new { mensaje = "Maestro no encontrado" });
+
+            return Ok(maestro);
+        }
+
+        // GET: api/maestros/buscar/alumno/{nombre}
+        [HttpGet("buscar/alumno/{nombre}")]
+        public async Task<IActionResult> BuscarAlumno(string nombre)
+        {
+            var alumno = await _context.Alumnos
+                                               .FirstOrDefaultAsync(a => a.Nombre.Contains(nombre));
+            if (alumno == null) return NotFound(new { mensaje = "Alumno no encontrado" });
+
+            return Ok(new
+            {
+                alumno = alumno.Nombre,
+                //maestro = alumno.Maestro != null ? alumno.Maestro.Nombre : "Sin maestro"
+            });
         }
     }
 }
